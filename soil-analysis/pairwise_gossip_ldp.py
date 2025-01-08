@@ -4,7 +4,7 @@ from datetime import datetime
 
 import numpy as np
 
-from common import Node, load_data, split_data, average_weights
+from soil_federated_ldp import DPNode, load_data, split_data, average_weights
 
 
 def run_pairwise_gossip(nodes, num_rounds, x_test, y_test):
@@ -116,7 +116,8 @@ def main():
 
     # Create nodes
     print("\nCreating nodes...")
-    nodes = [Node(i, data[0], data[1]) for i, data in enumerate(node_data)]
+    nodes = [DPNode(i, data[0], data[1], epsilon=10.0, delta=0.001)
+             for i, data in enumerate(node_data)]
 
     # Run pairwise gossip
     hist = run_pairwise_gossip(nodes, num_rounds, x_test, y_test)

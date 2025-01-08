@@ -15,8 +15,9 @@ class OpportunisticNode(Node):
 
     def calculate_label_distribution(self):
         """Calculate normalized distribution of labels in local data"""
+        y_numpy = self.y_data.cpu().numpy()
         # Ensure we count all possible labels (0-9 for MNIST)
-        dist = np.bincount(self.y_data.flatten(), minlength=10)
+        dist = np.bincount(y_numpy.flatten(), minlength=10)
         # Add small constant to avoid division by zero
         dist = dist + 1e-10
         return dist / np.sum(dist)
@@ -34,10 +35,10 @@ class OpportunisticNode(Node):
 
     def evaluate_peer_utility(self, peer_weights, x_val, y_val):
         """Evaluate how well peer's model performs on validation data"""
-        temp_weights = self.get_weights()  # Save current weights
-        self.set_weights(peer_weights)     # Try peer's weights
+        original_weights = self.get_weights()  # Save current weights
+        self.set_weights(peer_weights)  # Try peer's weights
         loss, acc = self.evaluate(x_val, y_val)
-        self.set_weights(temp_weights)     # Restore original weights
+        self.set_weights(original_weights)  # Restore original weights
         return acc
 
     def selective_update(self, peer_weights, similarity_score):
@@ -49,12 +50,12 @@ class OpportunisticNode(Node):
         if similarity_score > self.similarity_threshold:
             print(f"Update approved for node {self.node_id}")
             # Weight the update based on similarity
-            weighted_weights = []
             current_weights = self.get_weights()
-            for w1, w2 in zip(current_weights, peer_weights):
+            weighted_weights = {}
+            for name in current_weights.keys():
                 # More similar peers have more influence
-                w = similarity_score * w2 + (1 - similarity_score) * w1
-                weighted_weights.append(w)
+                weighted_weights[name] = (similarity_score * peer_weights[name] +
+                                          (1 - similarity_score) * current_weights[name])
             self.set_weights(weighted_weights)
             return True
         print(f"Update rejected for node {self.node_id}")

@@ -2,6 +2,7 @@ import random
 import time
 from datetime import datetime
 import numpy as np
+import torch
 from common import Node, load_data, split_data
 
 
@@ -9,7 +10,7 @@ class BroadcastNode(Node):
     def __init__(self, node_id, x_data, y_data, buffer_size=5):
         super().__init__(node_id, x_data, y_data)
         self.buffer_size = buffer_size
-        self.weight_buffer = []  # Store received model weights
+        self.weight_buffer = []
 
     def add_to_buffer(self, weights):
         """Add weights to buffer, return True if buffer is full"""
@@ -25,11 +26,10 @@ class BroadcastNode(Node):
             return
 
         print(f"Node {self.node_id} aggregating {len(self.weight_buffer)} models")
-        # Average weights across all dimensions
-        avg_weights = []
-        for weights_idx in range(len(self.weight_buffer[0])):
-            layer_weights = [weights[weights_idx] for weights in self.weight_buffer]
-            avg_weights.append(np.mean(layer_weights, axis=0))
+        # Average weights across all models in buffer
+        avg_weights = {}
+        for name in self.weight_buffer[0].keys():
+            avg_weights[name] = torch.stack([w[name] for w in self.weight_buffer]).mean(0)
 
         # Update model and clear buffer
         self.set_weights(avg_weights)
@@ -117,8 +117,8 @@ def main():
     # Parameters
     num_nodes = 5
     num_rounds = 10
-    buffer_size = 3  # Number of models to collect before averaging
-    broadcasts_per_round = 2  # Number of peers each node broadcasts to
+    buffer_size = 3
+    broadcasts_per_round = 2
 
     # Split data among nodes
     node_data = split_data(x_train, y_train, num_nodes)

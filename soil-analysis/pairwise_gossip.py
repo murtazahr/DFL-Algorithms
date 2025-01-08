@@ -4,7 +4,7 @@ from datetime import datetime
 
 import numpy as np
 
-from common import Node, load_data, split_data, average_weights
+from soil_federated import Node, average_weights, split_data, load_data
 
 
 def run_pairwise_gossip(nodes, num_rounds, x_test, y_test):

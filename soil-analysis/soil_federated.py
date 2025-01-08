@@ -2,29 +2,28 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import datasets, transforms
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 
-class ConvNet(nn.Module):
+class SoilNet(nn.Module):
     def __init__(self):
-        super(ConvNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3)
-        self.conv2 = nn.Conv2d(32, 64, 3)
-        self.conv3 = nn.Conv2d(64, 64, 3)
-        self.pool = nn.MaxPool2d(2)
-        self.relu = nn.ReLU()
-        self.flatten = nn.Flatten()
-        self.fc1 = nn.Linear(576, 64)  # 576 = 64 * 3 * 3
-        self.fc2 = nn.Linear(64, 10)
+        super(SoilNet, self).__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(12, 64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(32, 16),
+            nn.ReLU(),
+            nn.Linear(16, 3)
+        )
 
     def forward(self, x):
-        x = self.pool(self.relu(self.conv1(x)))
-        x = self.pool(self.relu(self.conv2(x)))
-        x = self.relu(self.conv3(x))
-        x = self.flatten(x)
-        x = self.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        return self.layers(x)
 
 
 class Node:
@@ -37,13 +36,13 @@ class Node:
         self.y_data = torch.LongTensor(y_data).to(self.device)
 
         print(f"\nInitializing Node {node_id} with {len(x_data)} training samples")
-        print(f"Label distribution: {np.bincount(y_data.flatten())}")
+        print(f"Label distribution: {np.bincount(y_data.flatten(), minlength=3)}")
 
-        self.model = ConvNet().to(self.device)
+        self.model = SoilNet().to(self.device)
         self.optimizer = optim.Adam(self.model.parameters())
         self.criterion = nn.CrossEntropyLoss()
 
-    def train_local(self, epochs=1):
+    def train_local(self, epochs=50):
         print(f"\nNode {self.node_id} starting local training...")
         self.model.train()
 
@@ -97,27 +96,32 @@ class Node:
 
 
 def load_data():
-    print("Loading MNIST dataset...")
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-    ])
+    print("Loading soil dataset...")
+    # Read the CSV file
+    df = pd.read_csv('OrgSoil.csv')
 
-    mnist_train = datasets.MNIST('./data', train=True, download=True, transform=transform)
-    mnist_test = datasets.MNIST('./data', train=False, download=True, transform=transform)
+    # Separate features and target
+    X = df.drop(['Output'], axis=1).values
+    y = df['Output'].values
 
-    x_train = mnist_train.data.numpy()[:, None, :, :] / 255.0  # Add channel dimension
-    y_train = mnist_train.targets.numpy()
-    x_test = mnist_test.data.numpy()[:, None, :, :] / 255.0
-    y_test = mnist_test.targets.numpy()
+    # Scale the features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
 
-    return (x_train, y_train), (x_test, y_test)
+    # Split the data into train and test sets
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_scaled, y, test_size=0.2, random_state=42
+    )
+
+    return (X_train, y_train), (X_test, y_test)
 
 
 def split_data(x_train, y_train, num_nodes):
     print(f"\nSplitting data among {num_nodes} nodes...")
-    sorted_idx = np.argsort(y_train)
-    x_sorted = x_train[sorted_idx]
-    y_sorted = y_train[sorted_idx]
+    # Shuffle data before splitting to ensure random distribution
+    indices = np.random.permutation(len(x_train))
+    x_shuffled = x_train[indices]
+    y_shuffled = y_train[indices]
 
     samples_per_node = len(x_train) // num_nodes
     node_data = []
@@ -125,8 +129,8 @@ def split_data(x_train, y_train, num_nodes):
     for i in range(num_nodes):
         start_idx = i * samples_per_node
         end_idx = (i + 1) * samples_per_node
-        x_node = x_sorted[start_idx:end_idx]
-        y_node = y_sorted[start_idx:end_idx]
+        x_node = x_shuffled[start_idx:end_idx]
+        y_node = y_shuffled[start_idx:end_idx]
         print(f"Node {i} data shape: {x_node.shape}")
         node_data.append((x_node, y_node))
 
@@ -134,5 +138,20 @@ def split_data(x_train, y_train, num_nodes):
 
 
 def average_weights(weights1, weights2):
-    return {name: (weights1[name] + weights2[name]) / 2.0
-            for name in weights1.keys()}
+    """Average two sets of weights with validation and error checking"""
+    if not weights1 or not weights2:
+        raise ValueError("Empty weights received for averaging")
+
+    if set(weights1.keys()) != set(weights2.keys()):
+        raise ValueError("Weight dictionaries have different keys")
+
+    averaged = {}
+    for name in weights1.keys():
+        if weights1[name].shape != weights2[name].shape:
+            raise ValueError(f"Weight shapes don't match for {name}: {weights1[name].shape} vs {weights2[name].shape}")
+        averaged[name] = (weights1[name] + weights2[name]) / 2.0
+
+    if not averaged:
+        raise ValueError("No weights were averaged")
+
+    return averaged
